@@ -1,0 +1,8 @@
+# Editor / OS cruft
+.DS_Store
+*.swp
+*~
+
+# Lua bytecode
+*.luac
+luac.out
