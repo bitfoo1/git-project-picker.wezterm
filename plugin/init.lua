@@ -72,7 +72,10 @@ local ACTIONS = {
 ---@return any action wezterm action_callback
 function M.action(target, mode)
   return wezterm.action_callback(function(window, pane)
-    picker.show(window, pane, target, mode, M.options)
+    local ok, err = pcall(picker.show, window, pane, target, mode, M.options)
+    if not ok then
+      wezterm.log_error("git-project-picker: picker.show failed: " .. tostring(err))
+    end
   end)
 end
 
@@ -96,8 +99,12 @@ local function register_keys(config, keys)
   config.keys = config.keys or {}
 
   if keys.prefix then
-    -- Prefix mode: LEADER+<prefix> enters a one-shot key table whose entries
-    -- are the per-action keys.
+    -- Prefix mode: LEADER+<prefix> enters a key table whose entries are the
+    -- per-action keys. Each entry first pops the key table and *then* opens the
+    -- picker, via act.Multiple. Opening an InputSelector overlay while a modal
+    -- key table is still active is fragile (the overlay can be swallowed and the
+    -- key-table indicator stays lit), so we always return to a clean state
+    -- before showing the picker.
     local prefix = keys.prefix
     local table_name = "git_project_picker"
 
@@ -106,8 +113,13 @@ local function register_keys(config, keys)
     for action_name, spec in pairs(ACTIONS) do
       local key = keys[action_name]
       if type(key) == "string" then
-        table.insert(kt, { key = key, action = M.action(spec.target, spec.mode) })
-        -- Also pop the key table after acting so it doesn't linger.
+        table.insert(kt, {
+          key = key,
+          action = wezterm.action.Multiple({
+            wezterm.action.PopKeyTable,
+            M.action(spec.target, spec.mode),
+          }),
+        })
       end
     end
     table.insert(kt, { key = "Escape", action = "PopKeyTable" })
@@ -118,7 +130,7 @@ local function register_keys(config, keys)
       key = prefix.key,
       action = wezterm.action.ActivateKeyTable({
         name = table_name,
-        one_shot = true,
+        one_shot = false,
         timeout_milliseconds = prefix.timeout_milliseconds or 2000,
       }),
     })
