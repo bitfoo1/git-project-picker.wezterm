@@ -1,8 +1,8 @@
--- git-project-picker.wezterm — plugin entry point.
+-- git-project-picker.wezterm - plugin entry point.
 --
 -- A fuzzy, frecency-ranked picker for your git repositories that can open the
 -- chosen project as a new tab, a vertical/horizontal split, or in the current
--- pane — either as a plain shell or by launching $EDITOR.
+-- pane - either as a plain shell or by launching $EDITOR.
 --
 -- Usage (see README.md for full options):
 --

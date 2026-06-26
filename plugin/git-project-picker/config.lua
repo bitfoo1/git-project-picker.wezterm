@@ -1,4 +1,4 @@
--- config.lua — default options and merge logic for git-project-picker.wezterm
+-- config.lua - default options and merge logic for git-project-picker.wezterm
 --
 -- The public option table is documented in the README. Every field here has a
 -- sane default so that `apply_to_config(config)` works with zero configuration.

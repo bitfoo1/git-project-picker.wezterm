@@ -1,4 +1,4 @@
--- finder.lua — discovers git project directories and orders them by frecency.
+-- finder.lua - discovers git project directories and orders them by frecency.
 --
 -- Two sources are merged:
 --   1. zoxide  -> directories you have actually visited, in frecency order
