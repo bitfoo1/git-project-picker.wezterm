@@ -98,13 +98,13 @@ local function defaults()
       -- Action -> key (within the prefix table) OR full binding spec
       -- ({ mods = ..., key = ... }) when prefix = false.
       -- lowercase = shell mode, uppercase = editor mode (by convention).
-      tab_shell      = "t",
-      split_v_shell  = "s", -- vertical split = left/right (new pane on the right)
-      split_h_shell  = "v", -- horizontal split = top/bottom (new pane on bottom)
+      tab_shell      = "t", -- new tab
+      split_v_shell  = "v", -- vertical tile = left/right (new pane on the right)
+      split_h_shell  = "h", -- horizontal split = top/bottom (new pane on bottom)
       here_shell     = "f", -- reuse current pane, just cd
       tab_editor     = "T",
-      split_v_editor = "S",
-      split_h_editor = "V",
+      split_v_editor = "V",
+      split_h_editor = "H",
       here_editor    = "e",
     },
   }
