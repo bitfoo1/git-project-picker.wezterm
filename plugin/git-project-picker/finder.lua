@@ -40,16 +40,71 @@ end
 ---@param argv string[]
 ---@return string|nil stdout
 local function run(argv)
-  local ok, success, stdout, stderr = pcall(wezterm.run_child_process, argv)
+  -- pcall's 2nd return is either the thrown error (when ok == false) or
+  -- run_child_process's own success flag (when ok == true); name it for both.
+  local ok, ok_or_err, stdout, stderr = pcall(wezterm.run_child_process, argv)
   if not ok then
-    wezterm.log_warn("git-project-picker: failed to spawn " .. table.concat(argv, " ") .. ": " .. tostring(success))
+    wezterm.log_warn("git-project-picker: failed to spawn " .. table.concat(argv, " ") .. ": " .. tostring(ok_or_err))
     return nil
   end
-  if not success then
+  if not ok_or_err then
     wezterm.log_warn("git-project-picker: command failed: " .. table.concat(argv, " ") .. " :: " .. tostring(stderr))
     return nil
   end
   return stdout
+end
+
+-- Cache of resolved absolute tool paths, keyed by the configured name.
+local resolved_tool = {}
+
+--- Resolve a tool name to an absolute path.
+-- GUI WezTerm (launched from Finder/dock) often starts with a minimal PATH that
+-- lacks version managers like mise/asdf, so a bare "zoxide"/"fd" fails to spawn.
+-- If `name` is already an absolute/relative path that exists, it is used as-is.
+-- Otherwise we ask a shell to resolve it (`<shell> <flags> 'command -v <name>'`),
+-- which loads the user's normal PATH. Both a *login* shell (sources
+-- .zprofile/.zlogin/.profile) and an *interactive* shell (sources .zshrc/.bashrc)
+-- are tried, since version managers may be activated in either. Results are
+-- cached. Falls back to the original name so behavior is unchanged when
+-- resolution is unnecessary.
+---@param name string
+---@param shell string shell to use for PATH resolution
+---@return string resolved path (or the original name as a fallback)
+local function resolve_tool(name, shell)
+  if not name or name == "" then
+    return name
+  end
+  if resolved_tool[name] ~= nil then
+    return resolved_tool[name]
+  end
+
+  -- Looks like a path already (contains a separator)? Trust it.
+  if name:find("[/\\]") then
+    resolved_tool[name] = name
+    return name
+  end
+
+  shell = shell or "/bin/sh"
+
+  -- Try, in order: login shell, interactive shell, interactive-login shell.
+  -- The first invocation that returns an absolute path wins. This spawns up to
+  -- three shells synchronously on the first picker open (one-time cost; the
+  -- result is cached above), and short-circuits as soon as a path is found.
+  local attempts = { "-lc", "-ic", "-ilc" }
+  local resolved = name
+  for _, flags in ipairs(attempts) do
+    local out = run({ shell, flags, "command -v " .. name })
+    if out then
+      local path = out:gsub("%s+$", ""):match("([^\r\n]+)%s*$")
+      if path and path:find("[/\\]") then
+        resolved = path
+        break
+      end
+    end
+  end
+
+  resolved_tool[name] = resolved
+  return resolved
 end
 
 --- Does `dir` contain a ".git" entry (directory or file, to support worktrees
@@ -69,11 +124,14 @@ local function from_zoxide(opts)
   if not opts.use_zoxide then
     return {}
   end
-  local out = run({ opts.zoxide_path, "query", "-l" })
+  local zoxide = resolve_tool(opts.zoxide_path, opts.shell)
+  local out = run({ zoxide, "query", "-l" })
   if not out then
     return {}
   end
   local repos = {}
+  -- Note: is_git_repo globs the filesystem once per zoxide entry, on the UI
+  -- thread. Fine for typical databases; could lag with very large ones.
   for line in out:gmatch("[^\r\n]+") do
     local dir = strip_trailing_sep(line)
     if dir ~= "" and is_git_repo(dir) then
@@ -92,19 +150,24 @@ end
 local function from_fd(opts)
   local seen = {}
   local repos = {}
+  local fd = resolve_tool(opts.fd_path, opts.shell)
   for _, raw in ipairs(opts.search_paths or {}) do
     local root = strip_trailing_sep(expand_home(raw))
     -- Only scan roots that exist to avoid noisy fd errors.
     if #wezterm.glob(root) > 0 then
+      -- fd's argument form is `fd [OPTIONS] [pattern] [path...]`. ".git" is the
+      -- pattern; `root` is the only search path. Do NOT add a "." here: it would
+      -- be parsed as a second search path (wezterm's process CWD, typically "/"
+      -- or $HOME under a GUI launch), leaking unrelated repos into the list and
+      -- forcing a huge scan.
       local out = run({
-        opts.fd_path,
+        fd,
         "--hidden",
         "--no-ignore-vcs",
         "--prune",
         "--absolute-path",
         "--max-depth", tostring(opts.max_depth),
         "--glob", ".git",
-        ".",
         root,
       })
       if out then
@@ -157,7 +220,7 @@ function M.touch(opts, path)
   if not opts.update_zoxide_on_open then
     return
   end
-  run({ opts.zoxide_path, "add", path })
+  run({ resolve_tool(opts.zoxide_path, opts.shell), "add", path })
 end
 
 -- Exposed for testing / reuse.
