@@ -203,6 +203,11 @@ return.
   `.git` file). Keep the glob `<dir>/.git`, not `<dir>/.git/`.
 - The fd scan uses `--prune` so it stops descending once a repo is found; do not
   remove it or nested `.git` dirs inside repos will appear.
+- The fd argv is `fd [OPTIONS] ".git" <root>` - the glob `.git` is the PATTERN
+  and `<root>` is the only search path. Do NOT add a `"."` argument: fd would
+  treat it as a SECOND search path (wezterm's process CWD, typically `/` or
+  `$HOME` under a GUI launch), leaking unrelated repos and triggering a huge
+  scan. `TestFromFd.test_fd_argv_has_no_stray_dot` guards this.
 - `here` mode cannot change an existing pane's cwd directly - it sends a `cd`
   command line to the running shell. That is intentional.
 
@@ -217,3 +222,31 @@ docs(readme): :memo: document flat key binding mode
 ```
 
 Do not commit unless explicitly asked.
+
+### Git / signing / remote (hard-won)
+
+- **Commits are SSH-signed** (`commit.gpgsign=true`, `gpg.format=ssh`). The
+  signing key needs its passphrase; in a non-interactive shell the commit fails
+  with `Load key ... incorrect passphrase` unless the key is loaded in a running
+  `ssh-agent`. If signing fails, ask the user to start the agent and `ssh-add`
+  the key, then retry - do not disable signing to work around it.
+- **Write multi-line commit messages to a file and use `git commit -F <file>`.**
+  Passing a body with `-m` through the shell mangles apostrophes (e.g. `user's`
+  became `user,Qs` once here). A message file avoids all shell quoting issues.
+  Remember the no-em-dash rule applies to commit messages too.
+- **When splitting mixed working-tree changes into logical commits**, use
+  `git add -p` to stage individual hunks (the file headers' em-dash->hyphen
+  cosmetic change lives in its own hunk, separable from logic). After staging,
+  sanity-check each intermediate state compiles with
+  `git show :<path> | luac -p -` before committing, so no commit is left broken.
+- **Remote**: `origin` is `git@ssh.git.bitfoo.de:dvonessen/git-project-picker.wezterm.git`
+  (Forgejo). SSH host is `ssh.git.bitfoo.de`; the web UI is `git.bitfoo.de`.
+- A freshly web-created Forgejo repo has an **unrelated** "Initial commit"
+  (stub `.gitignore`/`README.md`). Pushing an existing local history needs a
+  force push - prefer `git push --force-with-lease` (aborts if the remote moved
+  since your fetch) over a bare `--force`. This is destructive; confirm first.
+- **Testing server-side push hooks**: a no-op push to an in-sync branch does not
+  run them. Push a throwaway branch (`git push origin main:refs/heads/hook-test`)
+  to trigger receive hooks, inspect the `remote:` output, then delete it
+  (`git push origin --delete hook-test`). A failing hook may print a panic/stack
+  trace but still let the ref update.
