@@ -1,0 +1,31 @@
+# mise.toml - dev tasks for git-project-picker.wezterm.
+#
+# Usage:
+#   mise run lint    # syntax-check every Lua file (luac -p)
+#   mise run test    # run the deterministic unit suite (lua tests/run.lua)
+#   mise run check   # lint + test
+#
+# The test suite is zero-install: it uses the vendored tests/luaunit.lua and a
+# fake `wezterm` module, so it needs only `lua` on PATH (no luarocks, no real
+# WezTerm, no network, no disk access). That makes results reproducible: change
+# a module and re-run to verify nothing regressed.
+
+[tools]
+lua = "5.4"
+
+[tasks.lint]
+description = "Syntax-check every Lua source file with luac -p"
+run = '''
+set -e
+for f in plugin/init.lua plugin/git-project-picker/*.lua tests/*.lua; do
+  luac -p "$f" && echo "OK $f"
+done
+'''
+
+[tasks.test]
+description = "Run the deterministic luaunit suite"
+run = "lua tests/run.lua"
+
+[tasks.check]
+description = "Lint then test"
+depends = ["lint", "test"]
