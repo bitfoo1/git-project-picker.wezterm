@@ -106,7 +106,12 @@ local function deep_merge(base, override)
     out[k] = v
   end
   for k, v in pairs(override) do
-    if type(v) == "table" and type(out[k]) == "table" and not M.is_array(v) then
+    -- Only deep-merge when BOTH sides are plain key/value tables. If either the
+    -- override or the base is an array (e.g. search_paths), replace wholesale -
+    -- otherwise an empty override array ({}) has no [1] and would be treated as
+    -- a map, silently keeping the default array instead of clearing it.
+    if type(v) == "table" and type(out[k]) == "table"
+      and not M.is_array(v) and not M.is_array(out[k]) then
       out[k] = deep_merge(out[k], v)
     else
       out[k] = v
