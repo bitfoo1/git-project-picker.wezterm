@@ -3,8 +3,8 @@
 A fuzzy, frecency-ranked **git project picker** for [WezTerm](https://wezterm.org).
 
 Press a key, fuzzy-find any git repository on your machine, and open it as a
-**new tab**, a **vertical/horizontal split**, or **in the current pane** —
-either as a plain **shell** or by launching your **`$EDITOR`**. Every one of
+**new tab**, a **vertical/horizontal split**, or **in the current pane** - either
+as a plain **shell** or by launching your **configured editor**. Every one of
 those launch modes is its own configurable key binding.
 
 ```
@@ -19,24 +19,24 @@ those launch modes is its own configurable key binding.
 
 ## Features
 
-- **Git-only** — lists directories that contain a `.git` entry (dir *or* file,
+- **Git-only** - lists directories that contain a `.git` entry (dir *or* file,
   so worktrees and submodules work).
-- **Frecency** — repositories you visit often/recently float to the top, powered
+- **Frecency** - repositories you visit often/recently float to the top, powered
   by [`zoxide`](https://github.com/ajeetdsouza/zoxide). Opening a project records
   it in zoxide so the ranking keeps improving.
-- **Fresh discovery** — a [`fd`](https://github.com/sharkdp/fd) scan of your
+- **Fresh discovery** - a [`fd`](https://github.com/sharkdp/fd) scan of your
   configured `search_paths` surfaces brand-new repos you have never `cd`'d into.
-- **Fuzzy search** — native WezTerm `InputSelector` fuzzy matching.
-- **Eight launch modes** — `{ tab | vertical split | horizontal split | here } ×
+- **Fuzzy search** - native WezTerm `InputSelector` fuzzy matching.
+- **Eight launch modes** - `{ tab | vertical split | horizontal split | here } ×
   { shell | editor }`, each its own key.
-- **Fully configurable** — search paths, scan depth, tool paths, editor, colors,
+- **Fully configurable** - search paths, scan depth, tool paths, editor, colors,
   markers, and every key binding.
 
 ## Requirements
 
 | Tool | Why | Required |
 |------|-----|----------|
-| WezTerm (recent — `InputSelector` w/ `fuzzy`) | the picker UI | yes |
+| WezTerm (recent - `InputSelector` w/ `fuzzy`) | the picker UI | yes |
 | [`fd`](https://github.com/sharkdp/fd) | discover repos under `search_paths` | yes (unless you set `search_paths = {}` and rely only on zoxide) |
 | [`zoxide`](https://github.com/ajeetdsouza/zoxide) | frecency ranking | optional (`use_zoxide = false` to disable) |
 
@@ -76,13 +76,28 @@ project_picker.apply_to_config(config, {
   -- Record the chosen project in zoxide on open (improves future ranking).
   update_zoxide_on_open = true,
 
-  -- External tool paths (bare names are looked up on PATH).
+  -- External tool paths (bare names are looked up on PATH; resolved via your
+  -- login/interactive shell so version managers like mise/asdf are found even
+  -- when WezTerm is launched from the GUI with a minimal PATH).
   zoxide_path = "zoxide",
   fd_path     = "fd",
 
-  -- "editor" launch mode runs: cd <project> && <editor>; exec <shell>
-  editor = os.getenv("EDITOR") or "vi",
+  -- "editor" launch mode runs (in an interactive login shell, so your PATH and
+  -- shell aliases apply): cd <project> && <editor>; exec <shell>
+  -- This is an explicit option - set it to whatever you use. It is intentionally
+  -- NOT read from $EDITOR, because GUI terminals often start without it set.
+  editor = "vi",          -- e.g. "nvim", "hx", "vim", "code -w"
   shell  = os.getenv("SHELL") or "/bin/sh",
+
+  -- "here" mode types a `cd` into the current pane, which only works if a shell
+  -- is in the foreground. These are the process names treated as shells.
+  here_shell_processes = {
+    "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "xonsh", "elvish",
+  },
+  -- When "here" mode is used but the pane is NOT a shell:
+  --   false (default) -> show an explanatory message and do nothing
+  --   true            -> open the project in a new tab instead
+  here_fallback_to_tab = false,
 
   title = "  Git Projects",
   fuzzy = true,
@@ -104,28 +119,28 @@ project_picker.apply_to_config(config, {
 
 Two binding styles are supported.
 
-#### Prefix (key table) — default
+#### Prefix (key table) - default
 
-A leader/prefix key enters a one-shot key table; the next key picks the launch
-mode. By convention **lowercase = shell**, **uppercase = `$EDITOR`**.
+A leader/prefix key enters a key table; the next key picks the launch mode.
+By convention **lowercase = shell**, **uppercase = editor**.
 
 ```lua
 keys = {
   prefix = { mods = "LEADER", key = "f", timeout_milliseconds = 2000 },
 
-  tab_shell      = "t",  -- open in a new TAB,            shell
-  split_v_shell  = "s",  -- open in a VERTICAL split,     shell  (left/right)
-  split_h_shell  = "v",  -- open in a HORIZONTAL split,   shell  (top/bottom)
-  here_shell     = "f",  -- cd in the CURRENT pane,       shell
-  tab_editor     = "T",  -- open in a new TAB,            $EDITOR
-  split_v_editor = "S",  -- open in a VERTICAL split,     $EDITOR
-  split_h_editor = "V",  -- open in a HORIZONTAL split,   $EDITOR
-  here_editor    = "e",  -- cd in the CURRENT pane,       $EDITOR
+  tab_shell      = "t",  -- open in a new TAB,                       shell
+  split_v_shell  = "v",  -- VERTICAL tile (new pane on the right),   shell
+  split_h_shell  = "h",  -- HORIZONTAL split (new pane on bottom),   shell
+  here_shell     = "f",  -- cd in the CURRENT pane,                  shell
+  tab_editor     = "T",  -- open in a new TAB,                       editor
+  split_v_editor = "V",  -- VERTICAL tile (new pane on the right),   editor
+  split_h_editor = "H",  -- HORIZONTAL split (new pane on bottom),   editor
+  here_editor    = "e",  -- cd in the CURRENT pane,                  editor
 }
 ```
 
 So with the defaults: `LEADER f` then `t` opens a shell tab; `LEADER f T` opens
-the project in `$EDITOR` in a new tab; `Escape` cancels the prefix.
+the project in your editor in a new tab; `Escape` cancels the prefix.
 
 #### Flat bindings
 
@@ -160,19 +175,24 @@ config.keys = {
 ```
 
 `action(target, mode)` accepts `target ∈ {"tab","split_v","split_h","here"}`
-and `mode ∈ {"shell","editor"}` and returns a WezTerm `action_callback`.
+and `mode ∈ {"shell","editor"}` and returns a WezTerm key action (an
+`EmitEvent` for a stable named event, so bindings survive config reloads).
 
 ## How it works
 
-1. **Collect** — `zoxide query -l` (frecency order) filtered to git repos, then
+1. **Collect** - `zoxide query -l` (frecency order) filtered to git repos, then
    a `fd` scan of `search_paths` for `.git`. Results are merged and de-duplicated;
-   zoxide-ranked repos come first.
-2. **Pick** — entries are shown in a fuzzy `InputSelector`; the label is
+   zoxide-ranked repos come first. (`zoxide`/`fd` are resolved through your shell
+   so they're found even under a GUI's minimal PATH.)
+2. **Pick** - entries are shown in a fuzzy `InputSelector`; the label is
    `org/repo`, the hidden `id` is the absolute path.
-3. **Open** — the chosen path is launched per the (target, mode) of the key you
+3. **Open** - the chosen path is launched per the (target, mode) of the key you
    pressed. In `editor` mode the pane runs `cd <path> && <editor>; exec <shell>`
-   so an interactive shell remains in the project directory when the editor exits.
-4. **Learn** — the path is added to zoxide (`zoxide add`) so it ranks higher next
+   in an interactive login shell, so an interactive shell remains in the project
+   directory when the editor exits. `here` mode types a `cd` into the current
+   pane; if that pane isn't running a shell it shows a message (or opens a new
+   tab if `here_fallback_to_tab = true`).
+4. **Learn** - the path is added to zoxide (`zoxide add`) so it ranks higher next
    time.
 
 ## Local development
@@ -186,6 +206,21 @@ After editing the plugin, run `wezterm.plugin.update_all()` in the Debug Overlay
 (`Ctrl+Shift+L` by default) and reload the config. See `AGENTS.md` for the full
 contributor / AI-agent workflow.
 
+### Running the tests
+
+A deterministic, zero-install unit suite lives in `tests/` (vendored
+[luaunit](https://github.com/bluebird75/luaunit) + a fake `wezterm` module, so
+it needs only `lua` on your `PATH` - no luarocks, no real WezTerm, no network,
+no disk access). It covers the config merge logic, label formatting, and the
+finder's discovery/ordering (including regression tests for previously fixed
+bugs).
+
+```sh
+mise run test     # or: lua tests/run.lua
+mise run lint     # syntax-check every Lua file with luac -p
+mise run check    # lint + test
+```
+
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT - see [LICENSE](./LICENSE).
