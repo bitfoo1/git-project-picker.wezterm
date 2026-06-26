@@ -36,12 +36,31 @@ local function defaults()
     zoxide_path = "zoxide",
     fd_path = "fd",
 
-    -- Program used for the "editor" launch mode. Falls back to $EDITOR then vi.
-    editor = os.getenv("EDITOR") or "vi",
+    -- Program used for the "editor" launch mode. This is an explicit option:
+    -- set it to whatever editor you want (e.g. "nvim", "hx", "code -w", "vim").
+    -- It is run through an interactive shell so your normal PATH and shell
+    -- aliases apply. It is intentionally NOT read from $EDITOR, because GUI
+    -- terminals frequently launch without $EDITOR set.
+    editor = "vi",
 
     -- Shell used to run "cd <dir> && exec <editor>" so that, on editor exit,
     -- an interactive shell remains in the project directory.
     shell = os.getenv("SHELL") or "/bin/sh",
+
+    -- Process (basenames) considered "a shell" for the purposes of "here" mode.
+    -- "here" mode works by typing a `cd` command into the current pane, which
+    -- only makes sense if the foreground process is an interactive shell. If
+    -- the foreground process is something else (an editor, REPL, pager, ...),
+    -- typing into it does weird things. Add any other shells you use.
+    here_shell_processes = {
+      "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "xonsh", "elvish",
+    },
+
+    -- What to do when "here" mode is triggered but the current pane is NOT a
+    -- shell (see here_shell_processes):
+    --   false (default) -> show an explanatory message and do nothing.
+    --   true            -> silently open the project in a new tab instead.
+    here_fallback_to_tab = false,
 
     -- Title shown at the top of the fuzzy picker overlay.
     title = "  Git Projects",
@@ -49,7 +68,7 @@ local function defaults()
     -- Start the picker directly in fuzzy-find mode.
     fuzzy = true,
 
-    -- Styling — see style.lua for the meaning of each field.
+    -- Styling - see style.lua for the meaning of each field.
     style = {
       -- Foreground color of the "org/" path prefix in each label.
       prefix_color = "#7aa2f7",

@@ -1,4 +1,4 @@
--- picker.lua — shows the fuzzy picker and launches the chosen project.
+-- picker.lua - shows the fuzzy picker and launches the chosen project.
 --
 -- Launch matrix (target x mode):
 --   target: "tab" | "split_v" | "split_h" | "here"
@@ -28,15 +28,80 @@ local function q(s)
 end
 
 --- Build the argv used for "editor" launch mode.
--- Runs: cd <path> && <editor>; exec <shell>
--- so the editor opens at the project and, when it exits, an interactive shell
--- remains in the project directory instead of the pane/tab closing.
+-- Runs the configured editor inside an *interactive* login shell so that the
+-- user's PATH (e.g. mise/asdf shims) and shell aliases are available - GUI
+-- terminals often start without those in a plain non-interactive shell.
+-- After the editor exits, an interactive shell remains in the project
+-- directory instead of the pane/tab closing.
 ---@param path string
 ---@param opts table
 ---@return string[] argv
 local function editor_argv(path, opts)
-  local cmd = string.format("cd %s && %s; exec %s", q(path), opts.editor, opts.shell)
-  return { opts.shell, "-lc", cmd }
+  local cmd = string.format("cd %s && %s; exec %s -i", q(path), opts.editor, opts.shell)
+  return { opts.shell, "-ilc", cmd }
+end
+
+--- Basename of a path (handles / and \ separators).
+---@param p string
+---@return string
+local function basename(p)
+  return (p:gsub("[/\\]+$", ""):match("[^/\\]+$")) or p
+end
+
+--- Is the foreground process of `pane` an interactive shell, per opts?
+-- When we cannot determine the process name we assume "yes" (best effort), to
+-- avoid being overly disruptive on platforms where the name is unavailable.
+---@param pane any
+---@param opts table
+---@return boolean is_shell
+---@return string|nil proc_name detected foreground process basename (nil if unknown)
+local function foreground_is_shell(pane, opts)
+  local ok, name = pcall(function()
+    return pane:get_foreground_process_name()
+  end)
+  if not ok or not name or name == "" then
+    return true, nil
+  end
+  local base = basename(name):lower()
+  -- Strip a leading "-" that login shells sometimes carry (e.g. "-zsh").
+  base = base:gsub("^%-", "")
+  for _, s in ipairs(opts.here_shell_processes or {}) do
+    if base == s:lower() then
+      return true, base
+    end
+  end
+  return false, base
+end
+
+--- Show a message to the user reliably.
+-- toast_notification depends on OS notification permissions (often denied for
+-- GUI terminals on macOS), so it is not dependable. Instead we render the
+-- message as a single-item InputSelector overlay, which always shows inside the
+-- WezTerm window and is dismissed with Enter or Escape. A toast is also emitted
+-- as a best-effort extra.
+---@param window any GuiWindow
+---@param pane any Pane
+---@param title string short overlay title
+---@param message string body text (may contain newlines)
+local function notify(window, pane, title, message)
+  pcall(function()
+    window:toast_notification("git-project-picker", title .. ": " .. message, nil, 6000)
+  end)
+  -- Render each line of the message as its own row, plus a dismiss row, so the
+  -- whole thing is readable in the overlay list.
+  local choices = {}
+  for line in (message .. "\n"):gmatch("(.-)\n") do
+    table.insert(choices, { id = "dismiss", label = line })
+  end
+  table.insert(choices, { id = "dismiss", label = "[ Press Enter or Esc to dismiss ]" })
+  window:perform_action(
+    wezterm.action.InputSelector({
+      title = title,
+      choices = choices,
+      action = wezterm.action_callback(function() end),
+    }),
+    pane
+  )
 end
 
 --- Launch the selected project.
@@ -82,14 +147,39 @@ end
 ---@param mode string "shell"|"editor"
 ---@param opts table resolved options
 function M.show(window, pane, target, mode, opts)
+  -- "here" mode types a `cd` line into the current pane, which only works if the
+  -- foreground process is a shell. Decide this BEFORE opening the picker so the
+  -- warning overlay isn't nested inside the picker overlay (which is fragile).
+  if target == "here" then
+    local is_shell, proc = foreground_is_shell(pane, opts)
+    if not is_shell then
+      if opts.here_fallback_to_tab then
+        target = "tab"
+      else
+        notify(
+          window,
+          pane,
+          "Cannot open in current pane",
+          ("This pane is running '%s', not a shell.\n"):format(proc or "?")
+            .. "Fix: return to your shell prompt (quit the program), then retry, "
+            .. "or use a tab/split binding (e.g. leader f t / v / h).\n"
+            .. "Tip: set here_fallback_to_tab = true to open a new tab automatically."
+        )
+        return
+      end
+    end
+  end
+
   local entries = finder.projects(opts)
 
   if #entries == 0 then
-    window:toast_notification(
-      "git-project-picker",
-      "No git projects found in: " .. table.concat(opts.search_paths, ", "),
-      nil,
-      4000
+    notify(
+      window,
+      pane,
+      "No git projects found",
+      "Searched: " .. table.concat(opts.search_paths, ", ") .. "\n"
+        .. "Check that the paths exist and contain git repos, "
+        .. "or that zoxide/fd are installed."
     )
     return
   end

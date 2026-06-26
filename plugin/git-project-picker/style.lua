@@ -1,4 +1,4 @@
--- style.lua — turns project entries into styled InputSelector choices.
+-- style.lua - turns project entries into styled InputSelector choices.
 --
 -- Each choice has:
 --   id    = the absolute project path (passed to the launch action)
