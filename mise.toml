@@ -11,7 +11,7 @@
 # a module and re-run to verify nothing regressed.
 
 [tools]
-lua = "5.4"
+lua = "5.5.1"
 
 [tasks.lint]
 description = "Syntax-check every Lua source file with luac -p"
